@@ -1,0 +1,24 @@
+{
+    "IsLinux": false,
+    "PackageFormat": "PowerShell-${PS_VERSION}-win-x64.zip",
+    "osVersion": "Windows Server Core, LTSC 2019",
+    "shortTags": [
+        {
+            "Tag": "ltsc2019"
+        }
+    ],
+    "Base64EncodePackageUrl": true,
+    "tagTemplates": [
+        "#psversion#-windowsservercore-#shorttag#",
+        "windowsservercore-#shorttag#"
+    ],
+    "manifestLists": [
+        "latest"
+    ],
+    "TestProperties": {
+        "size": 1
+    },
+    "UseAcr": true,
+    "EndOfLife": "2024-11-30",
+    "DistributionState": "Validated"
+}
