@@ -1,13 +1,13 @@
 [
     {
         "name": "stable",
-        "path": "release/7-2",
+        "path": "release/7-3",
         "pwshInstallVersion": "7",
         "packageTag": ""
     },
     {
         "name": "preview",
-        "path": "release/7-3",
+        "path": "release/7-4",
         "tagPrefix": "preview",
         "pwshInstallVersion": "7-preview",
         "packageTag": "-preview"
@@ -18,11 +18,5 @@
         "tagPrefix": "lts",
         "pwshInstallVersion": "7-lts",
         "packageTag": "-lts"
-    },
-    {
-        "name": "community-stable",
-        "path": "release/community-stable",
-        "pwshInstallVersion": "7",
-        "packageTag": ""
     }
 ]

@@ -429,7 +429,7 @@ End {
                     continue
                 }
 
-                $architecture = 'amd64'
+                $architecture = $allMeta.meta.Architecture
                 $imagePath = $allMeta.imagePath
                 $relativeImagePath = $imagePath.Replace($PSScriptRoot,'')
                 $relativeImagePath = $relativeImagePath -replace '\\', '/'
@@ -596,20 +596,27 @@ End {
                 $osGroups = $channelGroup.Group | Group-Object -Property os
                 foreach ($osGroup in $osGroups) {
                     $osName = $osGroup.Name
+                    $architectureGroups = $osGroup.Group | Group-Object -Property Architecture
+                    foreach ($architectureGroup in $architectureGroups) {
+                        $architectureName = $architectureGroup.Name
 
-                    # Filter out subimages.  We cannot directly build subimages.
-                    foreach ($tag in $osGroup.Group | Where-Object { $_.Name -notlike '*/*' } | Sort-Object -Property dockerfile) {
-                        if (-not $matrix.ContainsKey($channelName)) {
-                            $matrix.Add($channelName, @{ })
-                        }
+                        # Filter out subimages.  We cannot directly build subimages.
+                        foreach ($tag in $architectureGroup.Group | Where-Object { $_.Name -notlike '*/*' } | Sort-Object -Property dockerfile) {
+                            if (-not $matrix.ContainsKey($channelName)) {
+                                $matrix.Add($channelName, @{ })
+                            }
 
-                        if (-not $matrix.$channelName.ContainsKey($osName)) {
-                            $matrix.$channelName.Add($osName, @{ })
-                        }
+                            if (-not $matrix.$channelName.ContainsKey($osName)) {
+                                $matrix.$channelName.Add($osName, @{ })
+                            }
 
-                        $jobName = $tag.Name -replace '-', '_'
-                        if (-not $matrix.$channelName[$osName].ContainsKey($jobName) -and -not $tag.ContinueOnError) {
-                            $matrix.$channelName[$osName].Add($jobName, (ConvertTo-SortedDictionary -Hashtable @{
+                            if (-not $matrix.$channelName.$osName.ContainsKey($architectureName)) {
+                                $matrix.$channelName.$osName.Add($architectureName, @{})
+                            }
+
+                            $jobName = $tag.Name -replace '-', '_'
+                            if (-not $matrix.$channelName[$osName][$architectureName].ContainsKey($jobName) -and -not $tag.ContinueOnError) {
+                                $matrix.$channelName[$osName][$architectureName].Add($jobName, (ConvertTo-SortedDictionary -Hashtable @{
                                     Channel           = $tag.Channel
                                     ImageName         = $tag.Name
                                     JobName           = $jobName
@@ -621,7 +628,9 @@ End {
                                     TagList           = $tag.Tags -join ';'
                                     IsLinux           = $tag.IsLinux
                                     UseInCI           = $tag.UseInCI
+                                    Architecture      = $tag.Architecture
                                 }))
+                            }
                         }
                     }
                 }
@@ -632,15 +641,20 @@ End {
             $fullMatrix[$channelName] = @()
             foreach ($osName in $matrix.$channelName.Keys | Sort-Object) {
                 $osMatrix = $matrix.$channelName.$osName
+                foreach ($architectureName in $osMatrix.Keys | Sort-Object) {
+                    $architectureMatrix = $osMatrix.$architectureName
+
                 $channelMatrix = [System.Collections.ArrayList]::new()
-                $osMatrix.Values | Sort-Object -Property ImageName | ForEach-Object {
+                    $architectureMatrix.Values | Sort-Object -Property ImageName | ForEach-Object {
                     $null = $channelMatrix.Add($_)
                 }
                 $fullMatrix[$channelName] += $channelMatrix
-                $matrixJson = $osMatrix | ConvertTo-Json -Compress
-                $variableName = "matrix_${channelName}_${osName}"
+                    $matrixJson = $architectureMatrix | ConvertTo-Json -Compress
+                    $variableName = "matrix_${channelName}_${osName}_${architectureName}"
                 if (!$FullJson) {
                     Set-BuildVariable -Name $variableName -Value $matrixJson -IsOutput
+                        Write-Verbose -Verbose "*********END of JSON*********************"
+                    }
                 }
             }
         }
@@ -654,10 +668,25 @@ End {
     if ($GenerateManifestLists.IsPresent) {
         $manifestLists = @()
         $tags = @()
+
         foreach ($repo in $tagGroups.Keys | Sort-Object) {
             $channelGroups = $tagGroups.$repo | Group-Object -Property Channel
             foreach ($channelGroup in $channelGroups) {
                 $channelName = $channelGroup.Name
+                switch($channelName) {
+                    'stable' {
+                        $channelTag = 'latest'
+                        $channelTagPrefix = ''
+                        $channelTagPostfix = ''
+                    }
+
+                    default {
+                        $channelTag = $channelName.ToLower()
+                        $channelTagPrefix = $channelTag + '-'
+                        $channelTagPostfix = '-' + $channelTag
+                    }
+                }
+
                 Write-Verbose "generating $channelName json"
                 $osGroups = $channelGroup.Group | Group-Object -Property os
                 foreach ($osGroup in $osGroups) {
@@ -667,14 +696,31 @@ End {
                     foreach ($tag in $osGroup.Group | Where-Object { $_.Name -notlike '*/*' } | Sort-Object -Property ManifestLists) {
                         if ($tag.ManifestLists) {
                             foreach ($manifestList in $tag.ManifestLists) {
+                                $originalManifestList = $manifestList
+                                if ($manifestList -notlike '*${channel*') {
+                                    Write-Warning "Issue found with $osName $manifestList $($tag.Tags)"
+                                    throw 'ManifestLists entries must contain on of: ${channelTag} ${channelTagPrefix} ${channelTagPostfix}'
+                                }
+
+                                $manifestList = $manifestList -replace '\${channelTag}', $channelTag
+                                $manifestList = $manifestList -replace '\${channelTagPrefix}', $channelTagPrefix
+                                $manifestList = $manifestList -replace '\${channelTagPostfix}', $channelTagPostfix
+
+                                if (!$manifestList) {
+                                    throw "error formatting $originalManifestList"
+                                }
 
                                 if ($manifestLists -notcontains $manifestList) {
                                     $manifestLists += $manifestList
                                 }
 
-                                $tag | Add-Member -MemberType NoteProperty -Value $repo -Name 'Repo'
-
-                                $tags += $tag
+                                $tags += [PSCustomObject]@{
+                                    Repo = $repo
+                                    FormattedManifestList = $manifestList
+                                    Tags = $tag.Tags
+                                    Channel = $tag.Channel
+                                    ContinueOnError = $tag.ContinueOnError
+                                }
                             }
                         }
                     }
@@ -693,7 +739,7 @@ End {
                 Repo         = ""
             }
 
-            foreach ($tag in $tags | Where-Object { $_.ManifestLists -contains $manifestList }) {
+            foreach ($tag in $tags | Where-Object { $_.FormattedManifestList -eq $manifestList }) {
                 if (-not $matrix.ContainsKey($manifestList)) {
                     $matrix.Add($manifestList, @{ })
                 }
