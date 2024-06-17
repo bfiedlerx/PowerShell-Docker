@@ -27,12 +27,17 @@ param(
     [Parameter(ParameterSetName="localBuildAll")]
     [Parameter(ParameterSetName="TestByName")]
     [Parameter(ParameterSetName="TestAll")]
+    [Parameter(ParameterSetName="GetSASData")]
     [switch]
     $Pull,
 
     [Parameter(Mandatory, ParameterSetName="GenerateMatrixJson")]
     [switch]
     $GenerateMatrixJson,
+
+    [Parameter(Mandatory, ParameterSetName="UpdateBuildYaml")]
+    [switch]
+    $UpdateBuildYaml,
 
     [Parameter(ParameterSetName="GenerateMatrixJson")]
     [switch]
@@ -53,11 +58,13 @@ param(
 
     [Parameter(ParameterSetName="localBuildByName")]
     [Parameter(ParameterSetName="localBuildAll")]
+    [Parameter(ParameterSetName="GetSASData")]
     [switch]
     $Push,
 
     [Parameter(ParameterSetName="localBuildByName")]
     [Parameter(ParameterSetName="localBuildAll")]
+    [Parameter(ParameterSetName="GetSASData")]
     [switch]
     $SkipTest,
 
@@ -93,6 +100,7 @@ param(
 
     [Parameter(ParameterSetName="localBuildByName")]
     [Parameter(ParameterSetName="localBuildAll")]
+    [Parameter(Mandatory, ParameterSetName="GetSASData")]
     [ValidateScript({([uri]$_).Scheme -eq 'https'})]
     [string]
     $SasUrl,
@@ -103,11 +111,13 @@ param(
     [Parameter(Mandatory, ParameterSetName="TestAll")]
     [Parameter(Mandatory, ParameterSetName="GetTagsByName")]
     [Parameter(Mandatory, ParameterSetName="GetTagsByChannel")]
+    [Parameter(ParameterSetName="GetSASData")]
     [ValidatePattern('(\d+\.){2}\d(-\w+(\.\d+)?)?')]
     [string]
     $Version,
 
     [Parameter(ParameterSetName="GenerateMatrixJson")]
+    [Parameter(ParameterSetName="UpdateBuildYaml")]
     [Parameter(ParameterSetName="GenerateManifestLists")]
     [Parameter(ParameterSetName="GenerateTagsYaml")]
     [ValidatePattern('(\d+\.){2}\d(-\w+(\.\d+)?)?')]
@@ -115,6 +125,7 @@ param(
     $StableVersion,
 
     [Parameter(ParameterSetName="GenerateMatrixJson")]
+    [Parameter(ParameterSetName="UpdateBuildYaml")]
     [Parameter(ParameterSetName="GenerateManifestLists")]
     [Parameter(ParameterSetName="GenerateTagsYaml")]
     [ValidatePattern('(\d+\.){2}\d(-\w+(\.\d+)?)?')]
@@ -122,6 +133,7 @@ param(
     $LtsVersion,
 
     [Parameter(ParameterSetName="GenerateManifestLists")]
+    [Parameter(ParameterSetName="UpdateBuildYaml")]
     [Parameter(ParameterSetName="GenerateMatrixJson")]
     [Parameter(ParameterSetName="GenerateTagsYaml")]
     [ValidatePattern('(\d+\.){2}\d(-\w+(\.\d+)?)?')]
@@ -129,6 +141,7 @@ param(
     $PreviewVersion,
 
     [Parameter(ParameterSetName="GenerateManifestLists")]
+    [Parameter(ParameterSetName="UpdateBuildYaml")]
     [Parameter(ParameterSetName="GenerateMatrixJson")]
     [Parameter(ParameterSetName="GenerateTagsYaml")]
     [ValidatePattern('(\d+\.){2}\d(-\w+(\.\d+)?)?')]
@@ -147,12 +160,14 @@ param(
     $ForcePesterInstall,
 
     [Parameter(ParameterSetName="GenerateManifestLists")]
+    [Parameter(ParameterSetName="UpdateBuildYaml")]
     [Parameter(ParameterSetName="GenerateMatrixJson")]
     [string]
     [ValidateSet('All','OnlyAcr','NoAcr')]
     $Acr,
 
     [Parameter(ParameterSetName="GenerateManifestLists")]
+    [Parameter(ParameterSetName="UpdateBuildYaml")]
     [Parameter(ParameterSetName="GenerateMatrixJson")]
     [string]
     [ValidateSet('All','Linux','Windows')]
@@ -178,6 +193,7 @@ DynamicParam {
     Add-ParameterAttribute -ParameterSetName 'localBuildByName' -Attributes $Attributes
     Add-ParameterAttribute -ParameterSetName 'GetTagsByName' -Attributes $Attributes
     Add-ParameterAttribute -ParameterSetName 'GenerateTagsYaml' -Attributes $Attributes -Mandatory $false
+    Add-ParameterAttribute -ParameterSetName 'GetSASData' -Attributes $Attributes
 
     if($dockerFileNames.Count -gt 0)
     {
@@ -198,11 +214,13 @@ DynamicParam {
     Add-ParameterAttribute -ParameterSetName 'TestAll' -Attributes $channelAttributes
     Add-ParameterAttribute -ParameterSetName 'TestByName' -Attributes $channelAttributes
     Add-ParameterAttribute -ParameterSetName 'localBuildAll' -Attributes $channelAttributes
+    Add-ParameterAttribute -ParameterSetName 'GetSASData' -Attributes $channelAttributes
     Add-ParameterAttribute -ParameterSetName 'localBuildByName' -Attributes $channelAttributes
     Add-ParameterAttribute -ParameterSetName 'GetTagsByName' -Attributes $channelAttributes
     Add-ParameterAttribute -ParameterSetName 'GetTagsByChannel' -Attributes $channelAttributes
     Add-ParameterAttribute -ParameterSetName 'DupeCheck' -Attributes $channelAttributes
     Add-ParameterAttribute -ParameterSetName 'GenerateMatrixJson' -Attributes $channelAttributes -Mandatory $false
+    Add-ParameterAttribute -ParameterSetName "UpdateBuildYaml" -Attributes $channelAttributes -Mandatory $false
     Add-ParameterAttribute -ParameterSetName 'GenerateTagsYaml' -Attributes $channelAttributes
     Add-ParameterAttribute -ParameterSetName 'GenerateManifestLists' -Attributes $channelAttributes
 
@@ -227,7 +245,7 @@ Begin {
 
     $ENV:DOCKER_BUILDKIT = 1
 
-    if ($PSCmdlet.ParameterSetName -notin 'GenerateMatrixJson', 'GenerateTagsYaml', 'DupeCheck', 'GenerateManifestLists' -and $Channel.Count -gt 1)
+    if ($PSCmdlet.ParameterSetName -notin 'GenerateMatrixJson', 'UpdateBuildYaml', 'GenerateTagsYaml', 'DupeCheck', 'GenerateManifestLists' -and $Channel.Count -gt 1)
     {
         throw "Multiple Channels are not supported in this parameter set"
     }
@@ -237,6 +255,8 @@ Begin {
         $Channels = $channelNames
     } elseif ($FullJson) {
         $Channels = $channelNames | Where-Object { $_ -notlike 'community*' }
+    } elseif ( $PSCmdlet.ParameterSetName -eq 'GetSASData' ) {
+        $Channels = $Channel
     } else {
         $Channels = $Channel
     }
@@ -364,6 +384,28 @@ End {
             $useAcr = $allMeta.meta.UseAcr
             $continueOnError = $allMeta.meta.ContinueOnError
 
+            if ($SasUrl)
+            {
+                $params = @{
+                    Dockerfile    = $dockerFileName
+                    psversion     = $allMeta.psversion
+                    SasData       = $sasData
+                    actualChannel = $actualChannel
+                    actualTagData = $actualTagData
+                    actualVersion = $windowsVersion
+                    AllMeta       = $allMeta
+                    CI            = $CI.IsPresent
+                }
+
+                if($allMeta.BaseImage)
+                {
+                    $params.Add('BaseImage',$allMeta.BaseImage)
+                }
+
+                $testParams = Get-SASBuildArgs @params
+                return $testParams
+            }
+
             if ($Build.IsPresent -or $Test.IsPresent)
             {
                 $params = @{
@@ -404,7 +446,7 @@ End {
                     }
                 }
             }
-            elseif ($GenerateTagsYaml.IsPresent -or $GenerateMatrixJson.IsPresent -or $GenerateManifestLists.IsPresent) {
+            elseif ($GenerateTagsYaml.IsPresent -or $GenerateMatrixJson.IsPresent -or $UpdateBuildYaml.IsPresent -or $GenerateManifestLists.IsPresent) {
                 if($Acr -eq 'OnlyAcr' -and !$useAcr)
                 {
                     continue
@@ -437,7 +479,7 @@ End {
 
                 $osVersion = $allMeta.meta.osVersion
                 $manifestLists = $allMeta.meta.ManifestLists
-                if($osVersion -or $GenerateMatrixJson.IsPresent -or $GenerateManifestLists.IsPresent)
+                if($osVersion -or $GenerateMatrixJson.IsPresent -or $UpdateBuildYaml.IsPresent -or $GenerateManifestLists.IsPresent)
                 {
                     if ($osVersion) {
                         $osVersion = $osVersion.replace('${fromTag}', $actualTagData.fromTag)
@@ -525,8 +567,8 @@ End {
         Invoke-PesterWrapper -Script $testsPath -OutputFile $logPath -ExtraParams $extraParams
     }
 
-    Write-Verbose "!$GenerateTagsYaml -and !$GenerateMatrixJson -and !$GenerateManifestLists -and '$($PSCmdlet.ParameterSetName)' -notlike '*All'" -Verbose
-    if (!$GenerateTagsYaml -and !$GenerateMatrixJson -and !$GenerateManifestLists -and $PSCmdlet.ParameterSetName -notlike '*All') {
+    Write-Verbose "!$GenerateTagsYaml -and !$GenerateMatrixJson -and !$UpdateBuildYaml -and !$GenerateManifestLists -and '$($PSCmdlet.ParameterSetName)' -notlike '*All'" -Verbose
+    if (!$GenerateTagsYaml -and !$GenerateMatrixJson -and !$UpdateBuildYaml -and !$GenerateManifestLists -and $PSCmdlet.ParameterSetName -notlike '*All') {
         $dockerImagesToScan = ''
         # print local image names
         # used only with the -Build
@@ -662,6 +704,47 @@ End {
         if($FullJson) {
             $matrixJson = $fullMatrix | ConvertTo-Json -Depth 100
             Write-Output $matrixJson
+        }
+    }
+
+    $channelsUsed = @{}
+    if ($UpdateBuildYaml.IsPresent) {
+        foreach ($repo in $tagGroups.Keys | Sort-Object) {
+            $channelGroups = $tagGroups.$repo | Group-Object -Property Channel
+            foreach($channelGroup in $channelGroups)
+            {
+                $channelName = $channelGroup.Name
+                $ciFolder = Join-Path -Path $PSScriptRoot -ChildPath '.vsts-ci'
+                $channelReleaseStagePath = Join-Path -Path $ciFolder -ChildPath "$($channelName)ReleaseStage.yml"
+
+                if (!$channelsUsed.Contains($channelName))
+                {
+                    # Note: channelGroup contains entry for a channels' regular and channel's test-deps images.
+                    # But, we only want 1 <channel>ReleaseStage.yml file to be created per channel (ie 1 stableReleaseStage.yml) so only populate start of yaml file once per channel.
+                    $channelReleaseStageFileExists = Test-Path $channelReleaseStagePath
+                    if ($channelReleaseStageFileExists)
+                    {
+                        Remove-Item -Path $channelReleaseStagePath
+                    }
+
+                    New-Item -Type File -Path $channelReleaseStagePath
+    
+                    Get-StartOfYamlPopulated -Channel $channelName -YamlFilePath $channelReleaseStagePath
+                    $channelsUsed.Add($channelName, $channelGroup.Values)
+                }
+
+                $osGroups = $channelGroup.Group | Group-Object -Property os
+                foreach ($osGroup in $osGroups) {
+                    $architectureGroups = $osGroup.Group | Group-Object -Property Architecture
+                    foreach ($architectureGroup in $architectureGroups) {
+                        # Note: For each image to be built (including test-deps images) the <channel>ReleaseStage.yml file needs to have a template call for the image.
+                        foreach ($tag in $architectureGroup.Group | Sort-Object -Property dockerfile) {
+                            Write-Verbose -Verbose "calling method to populate template call in yaml file for channel: $channelName for image: $($tag.Name)"
+                            Get-TemplatePopulatedYaml -YamlFilePath $channelReleaseStagePath -ImageInfo $tag
+                        }
+                    }
+                }
+            }
         }
     }
 
